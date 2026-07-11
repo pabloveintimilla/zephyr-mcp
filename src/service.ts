@@ -42,7 +42,8 @@ export class ReviewService {
 
   /**
    * Headline tool logic. Chains:
-   *   issuelinks/testcases -> testcases/{key} (+teststeps) -> issuelinks/executions
+   *   issuelinks/testcases -> testcases/{key} (+teststeps)
+   *                        -> testexecutions?testCase={key} (per linked case)
    * and returns one digested bundle with a coverage summary.
    */
   async reviewStoryCoverage(issueKey: string): Promise<CoverageBundle> {
@@ -55,8 +56,8 @@ export class ReviewService {
     );
     const versionByKey = new Map(linked.map((l) => [l.key, l.version] as const));
 
-    // Fetch linked executions once and index them by test case key.
-    const execByCaseKey = await this.loadExecutionsByCaseKey(issueKey, resolver, notes);
+    // Fetch executions per linked test case key and index them by that key.
+    const execByCaseKey = await this.loadExecutionsByCaseKey(keys, resolver, notes);
 
     const testCases: DigestTestCase[] = await this.client.mapLimited(keys, async (key) => {
       const [tc, rawSteps] = await Promise.all([
@@ -238,28 +239,34 @@ export class ReviewService {
   }
 
   private async loadExecutionsByCaseKey(
-    issueKey: string,
+    keys: string[],
     resolver: NameResolver,
     notes: string[],
   ): Promise<Map<string, DigestExecution[]>> {
+    // Fan out per test case key. The issue-link executions endpoint does not
+    // reliably index executions, so we query GET /testexecutions?testCase={key}
+    // — the endpoint that actually returns the execution history — for each key.
     const map = new Map<string, DigestExecution[]>();
-    let refs;
-    try {
-      refs = await this.client.getIssueLinkExecutions(issueKey);
-    } catch {
-      notes.push(`Could not load executions for ${issueKey}; execution status omitted.`);
-      return map;
-    }
-    const ids = refs.map((r) => r.id).filter((id): id is number => id != null);
-    const execs = await this.client.mapLimited(ids, (id) => this.client.getTestExecution(id));
-    for (const exec of execs) {
-      const caseKey = keyFromSelf(exec.testCase?.self);
-      if (!caseKey) continue;
-      const statusName = await resolver.resolveStatus(exec.testExecutionStatus);
-      const digest = toDigestExecution(exec, statusName);
-      const list = map.get(caseKey) ?? [];
-      list.push(digest);
-      map.set(caseKey, list);
+    const failed: string[] = [];
+    await this.client.mapLimited(keys, async (key) => {
+      let execs;
+      try {
+        execs = await this.client.getTestExecutionsByCase(key);
+      } catch {
+        failed.push(key);
+        return;
+      }
+      const digests: DigestExecution[] = [];
+      for (const exec of execs) {
+        const statusName = await resolver.resolveStatus(exec.testExecutionStatus);
+        digests.push(toDigestExecution(exec, statusName));
+      }
+      if (digests.length > 0) map.set(key, digests);
+    });
+    if (failed.length > 0) {
+      notes.push(
+        `Could not load executions for ${failed.join(", ")}; execution status omitted for those test cases.`,
+      );
     }
     return map;
   }

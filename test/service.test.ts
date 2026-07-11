@@ -20,6 +20,40 @@ function routingFetch(routes: Record<string, unknown>): typeof fetch {
   }) as unknown as typeof fetch;
 }
 
+/**
+ * Routing fetch that serves `GET /testexecutions?testCase={key}` from a
+ * per-case map (as a single paged list), and everything else from `routes`.
+ * A key mapped to a thrown error responds 500 so the fan-out failure path runs.
+ */
+function routingFetchWithExecByCase(
+  routes: Record<string, unknown>,
+  execByCase: Record<string, unknown[] | "error">,
+): typeof fetch {
+  return (async (url: string) => {
+    const u = new URL(url);
+    const path = u.pathname.replace(/^\/v2/, "");
+    if (path === "/testexecutions") {
+      const key = u.searchParams.get("testCase") ?? "";
+      const entry = execByCase[key];
+      if (entry === "error") {
+        return new Response(JSON.stringify({ message: "boom" }), { status: 500 });
+      }
+      const values = entry ?? [];
+      return new Response(
+        JSON.stringify({ startAt: 0, maxResults: 50, next: null, isLast: true, values }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (!(path in routes)) {
+      return new Response(JSON.stringify({ message: "not mocked" }), { status: 404 });
+    }
+    return new Response(JSON.stringify(routes[path]), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as unknown as typeof fetch;
+}
+
 const STATUSES = [
   { id: 10, name: "Approved" },
   { id: 5, name: "Pass" },
@@ -33,7 +67,6 @@ test("review_story_coverage assembles a digested bundle with summary", async () 
       { key: "LOYAL-T1", version: 1 },
       { key: "LOYAL-T2", version: 2 },
     ],
-    "/issuelinks/LOYAL-1/executions": [{ id: 100 }, { id: 101 }],
     "/testcases/LOYAL-T1": {
       key: "LOYAL-T1",
       name: "Login works",
@@ -64,27 +97,23 @@ test("review_story_coverage assembles a digested bundle with summary", async () 
       next: null,
       values: [{ inline: { description: "Click logout", expectedResult: "Back to login" } }],
     },
-    "/testexecutions/100": {
-      id: 100,
-      key: "LOYAL-E1",
-      testCase: { self: "https://api.example.com/v2/testcases/LOYAL-T1/versions/1" },
-      testExecutionStatus: { id: 5 },
-      actualEndDate: "2026-06-01T10:00:00Z",
-      testCycle: { id: 900 },
-    },
-    "/testexecutions/101": {
-      id: 101,
-      key: "LOYAL-E2",
-      testCase: { self: "https://api.example.com/v2/testcases/LOYAL-T2/versions/2" },
-      testExecutionStatus: { id: 6 },
-      actualEndDate: "2026-06-02T10:00:00Z",
-      testCycle: { id: 900 },
-    },
     "/statuses": { startAt: 0, maxResults: 50, next: null, values: STATUSES },
     "/priorities": { startAt: 0, maxResults: 50, next: null, values: PRIORITIES },
   };
 
-  const client = new ZephyrClient(config, { fetchImpl: routingFetch(routes) });
+  // Executions come per-test-case from GET /testexecutions?testCase={key}.
+  const execByCase: Record<string, unknown[] | "error"> = {
+    "LOYAL-T1": [
+      { id: 100, key: "LOYAL-E1", testExecutionStatus: { id: 5 }, actualEndDate: "2026-06-01T10:00:00Z", testCycle: { id: 900 } },
+    ],
+    "LOYAL-T2": [
+      { id: 101, key: "LOYAL-E2", testExecutionStatus: { id: 6 }, actualEndDate: "2026-06-02T10:00:00Z", testCycle: { id: 900 } },
+    ],
+  };
+
+  const client = new ZephyrClient(config, {
+    fetchImpl: routingFetchWithExecByCase(routes, execByCase),
+  });
   const service = new ReviewService(client);
   const bundle = await service.reviewStoryCoverage("LOYAL-1");
 
@@ -109,7 +138,6 @@ test("review_story_coverage assembles a digested bundle with summary", async () 
 test("review_story_coverage returns empty coverage (not an error) when nothing is linked", async () => {
   const routes: Record<string, unknown> = {
     "/issuelinks/LOYAL-9/testcases": [],
-    "/issuelinks/LOYAL-9/executions": [],
     "/statuses": { values: [] },
     "/priorities": { values: [] },
   };
@@ -120,6 +148,70 @@ test("review_story_coverage returns empty coverage (not an error) when nothing i
   assert.equal(bundle.summary.totalTestCases, 0);
   assert.equal(bundle.testCases.length, 0);
   assert.match(bundle.notes.join(" "), /No test cases are linked/);
+});
+
+test("review_story_coverage sources executions per test case (regression: empty issue-link array)", async () => {
+  const routes: Record<string, unknown> = {
+    "/issuelinks/LOYAL-2/testcases": [{ key: "LOYAL-T5", version: 1 }],
+    // Issue-link executions is empty/unreliable — must NOT be relied upon.
+    "/issuelinks/LOYAL-2/executions": [],
+    "/testcases/LOYAL-T5": { key: "LOYAL-T5", name: "Redeem points", priority: { id: 1 }, status: { id: 10 } },
+    "/testcases/LOYAL-T5/teststeps": { startAt: 0, maxResults: 50, next: null, values: [] },
+    "/statuses": { values: STATUSES },
+    "/priorities": { values: PRIORITIES },
+  };
+  const execByCase: Record<string, unknown[] | "error"> = {
+    "LOYAL-T5": [
+      { id: 200, key: "LOYAL-E5", testExecutionStatus: { id: 5 }, actualEndDate: "2026-06-10T10:00:00Z", testCycle: { id: 950 } },
+    ],
+  };
+
+  const client = new ZephyrClient(config, {
+    fetchImpl: routingFetchWithExecByCase(routes, execByCase),
+  });
+  const service = new ReviewService(client);
+  const bundle = await service.reviewStoryCoverage("LOYAL-2");
+
+  const t5 = bundle.testCases.find((t) => t.key === "LOYAL-T5")!;
+  assert.equal(t5.lastExecution?.normalizedStatus, "passed");
+  assert.equal(t5.lastExecution?.key, "LOYAL-E5");
+  assert.equal(bundle.summary.passed, 1);
+  assert.deepEqual(bundle.cycles, [{ id: 950 }]);
+});
+
+test("review_story_coverage is best-effort when a per-case execution fetch fails", async () => {
+  const routes: Record<string, unknown> = {
+    "/issuelinks/LOYAL-3/testcases": [
+      { key: "LOYAL-T6", version: 1 },
+      { key: "LOYAL-T7", version: 1 },
+    ],
+    "/testcases/LOYAL-T6": { key: "LOYAL-T6", name: "Case six", priority: { id: 1 }, status: { id: 10 } },
+    "/testcases/LOYAL-T7": { key: "LOYAL-T7", name: "Case seven", priority: { id: 1 }, status: { id: 10 } },
+    "/testcases/LOYAL-T6/teststeps": { startAt: 0, maxResults: 50, next: null, values: [] },
+    "/testcases/LOYAL-T7/teststeps": { startAt: 0, maxResults: 50, next: null, values: [] },
+    "/statuses": { values: STATUSES },
+    "/priorities": { values: PRIORITIES },
+  };
+  const execByCase: Record<string, unknown[] | "error"> = {
+    "LOYAL-T6": "error", // fetch fails for this key only
+    "LOYAL-T7": [
+      { id: 300, key: "LOYAL-E7", testExecutionStatus: { id: 5 }, actualEndDate: "2026-06-11T10:00:00Z", testCycle: { id: 960 } },
+    ],
+  };
+
+  const client = new ZephyrClient(config, {
+    fetchImpl: routingFetchWithExecByCase(routes, execByCase),
+  });
+  const service = new ReviewService(client);
+  const bundle = await service.reviewStoryCoverage("LOYAL-3");
+
+  // Bundle still returned; the healthy case keeps its execution, the failed one is omitted.
+  assert.equal(bundle.testCases.length, 2);
+  const t6 = bundle.testCases.find((t) => t.key === "LOYAL-T6")!;
+  const t7 = bundle.testCases.find((t) => t.key === "LOYAL-T7")!;
+  assert.equal(t6.lastExecution, null);
+  assert.equal(t7.lastExecution?.normalizedStatus, "passed");
+  assert.match(bundle.notes.join(" "), /Could not load executions for LOYAL-T6/);
 });
 
 test("listTestCaseExecutions returns full history newest-first with status names", async () => {
