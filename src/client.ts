@@ -14,6 +14,7 @@ import type {
   Project,
   ResourceLink,
   TestCase,
+  TestCycle,
   TestExecution,
   TestStepOutput,
 } from "./types.js";
@@ -157,6 +158,20 @@ export class ZephyrClient {
   getIssueLinkExecutions(issueKey: string): Promise<ResourceLink[]> {
     return this.get<ResourceLink[]>(
       `/issuelinks/${encodeURIComponent(issueKey)}/executions`,
+    );
+  }
+
+  /** GET /issuelinks/{issueKey}/testcycles → test cycle id + link references. */
+  getIssueLinkTestCycles(issueKey: string): Promise<ResourceLink[]> {
+    return this.get<ResourceLink[]>(
+      `/issuelinks/${encodeURIComponent(issueKey)}/testcycles`,
+    );
+  }
+
+  /** GET /testcycles/{idOrKey} → full test cycle detail (key, name, status). */
+  getTestCycle(idOrKey: number | string): Promise<TestCycle> {
+    return this.get<TestCycle>(
+      `/testcycles/${encodeURIComponent(String(idOrKey))}`,
     );
   }
 

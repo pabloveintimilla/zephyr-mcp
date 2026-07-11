@@ -282,3 +282,76 @@ test("listStoryTestCases returns an empty list when no test cases are linked", a
   const listing = await service.listStoryTestCases("LOYAL-9");
   assert.deepEqual(listing, []);
 });
+
+const CYCLE_STATUSES = [...STATUSES, { id: 7, name: "Done" }];
+
+test("listStoryExecutions enriches executions with cycle name/key and lists linked cycles", async () => {
+  const routes: Record<string, unknown> = {
+    // 901 is linked but has no execution — it must still appear in `cycles`.
+    "/issuelinks/LOYAL-1/testcycles": [{ id: 900 }, { id: 901 }],
+    "/testcycles/900": { id: 900, key: "LOYAL-R1", name: "Sprint 1", status: { id: 7 } },
+    "/testcycles/901": { id: 901, key: "LOYAL-R2", name: "Sprint 2", status: { id: 7 } },
+    "/issuelinks/LOYAL-1/executions": [{ id: 100 }],
+    "/testexecutions/100": {
+      id: 100,
+      key: "LOYAL-E1",
+      testExecutionStatus: { id: 5 },
+      actualEndDate: "2026-06-01T10:00:00Z",
+      testCycle: { id: 900 },
+    },
+    "/statuses": { values: CYCLE_STATUSES },
+  };
+  const client = new ZephyrClient(config, { fetchImpl: routingFetch(routes) });
+  const service = new ReviewService(client);
+  const { executions, cycles } = await service.listStoryExecutions("LOYAL-1");
+
+  assert.equal(executions.length, 1);
+  assert.equal(executions[0].cycleId, 900);
+  assert.equal(executions[0].cycle, "Sprint 1");
+  assert.equal(executions[0].cycleKey, "LOYAL-R1");
+  assert.equal(executions[0].normalizedStatus, "passed");
+
+  // Both linked cycles present, including the one with no execution.
+  const byId = new Map(cycles.map((c) => [c.id, c]));
+  assert.equal(cycles.length, 2);
+  assert.deepEqual(byId.get(901), { id: 901, key: "LOYAL-R2", name: "Sprint 2", status: "Done" });
+});
+
+test("listStoryExecutions is best-effort when a cycle detail fails", async () => {
+  const fetchImpl = (async (url: string) => {
+    const path = new URL(url).pathname.replace(/^\/v2/, "");
+    if (path === "/testcycles/900") {
+      return new Response(JSON.stringify({ message: "boom" }), { status: 500 });
+    }
+    const routes: Record<string, unknown> = {
+      "/issuelinks/LOYAL-1/testcycles": [{ id: 900 }],
+      "/issuelinks/LOYAL-1/executions": [{ id: 100 }],
+      "/testexecutions/100": {
+        id: 100,
+        key: "LOYAL-E1",
+        testExecutionStatus: { id: 5 },
+        actualEndDate: "2026-06-01T10:00:00Z",
+        testCycle: { id: 900 },
+      },
+      "/statuses": { values: CYCLE_STATUSES },
+    };
+    if (!(path in routes)) {
+      return new Response(JSON.stringify({ message: "not mocked" }), { status: 404 });
+    }
+    return new Response(JSON.stringify(routes[path]), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as unknown as typeof fetch;
+
+  const client = new ZephyrClient(config, { fetchImpl });
+  const service = new ReviewService(client);
+  const { executions, cycles } = await service.listStoryExecutions("LOYAL-1");
+
+  // Execution still returned; cycle name omitted; failed cycle dropped from list.
+  assert.equal(executions.length, 1);
+  assert.equal(executions[0].cycleId, 900);
+  assert.equal(executions[0].cycle, undefined);
+  assert.equal(executions[0].cycleKey, undefined);
+  assert.deepEqual(cycles, []);
+});

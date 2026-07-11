@@ -12,11 +12,13 @@ import {
   normalizeStatus,
   pickLatest,
   toDigestExecution,
+  toDigestTestCycle,
   type CoverageBundle,
   type CoverageSummary,
   type DigestExecution,
   type DigestStep,
   type DigestTestCase,
+  type DigestTestCycle,
 } from "./digest.js";
 import type { TestCase } from "./types.js";
 
@@ -27,6 +29,12 @@ export interface StoryTestCaseListing {
   priority: string | null;
   status: string | null;
   version?: number;
+}
+
+/** Result of `listStoryExecutions`: executions plus the story's linked cycles. */
+export interface StoryExecutionsBundle {
+  executions: DigestExecution[];
+  cycles: DigestTestCycle[];
 }
 
 export class ReviewService {
@@ -121,18 +129,33 @@ export class ReviewService {
     });
   }
 
-  /** list_story_executions: per-execution status/cycle/date view for a story. */
-  async listStoryExecutions(issueKey: string): Promise<DigestExecution[]> {
+  /**
+   * list_story_executions: per-execution status/cycle/date view for a story,
+   * plus the distinct test cycles the story is linked to. Chains
+   *   issuelinks/executions -> testexecutions/{id}
+   *   issuelinks/testcycles -> testcycles/{id}
+   * and resolves each execution's readable cycle name/key from the linked cycles.
+   */
+  async listStoryExecutions(issueKey: string): Promise<StoryExecutionsBundle> {
     const resolver = new NameResolver(this.client);
+
+    const cyclesById = await this.loadStoryTestCycles(issueKey, resolver);
+
     const refs = await this.client.getIssueLinkExecutions(issueKey);
     const ids = refs.map((r) => r.id).filter((id): id is number => id != null);
     const execs = await this.client.mapLimited(ids, (id) => this.client.getTestExecution(id));
-    const out: DigestExecution[] = [];
+    const executions: DigestExecution[] = [];
     for (const exec of execs) {
       const statusName = await resolver.resolveStatus(exec.testExecutionStatus);
-      out.push(toDigestExecution(exec, statusName));
+      const digest = toDigestExecution(exec, statusName);
+      const cycle = digest.cycleId != null ? cyclesById.get(digest.cycleId) : undefined;
+      if (cycle?.name) digest.cycle = cycle.name;
+      if (cycle?.key) digest.cycleKey = cycle.key;
+      executions.push(digest);
     }
-    return out.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+    executions.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+
+    return { executions, cycles: [...cyclesById.values()] };
   }
 
   /**
@@ -181,6 +204,38 @@ export class ReviewService {
   }
 
   // ---- internals ----------------------------------------------------------
+
+  /**
+   * Load the test cycles linked to a story, keyed by cycle id. Best-effort:
+   * a failed list or a failed per-cycle fetch is skipped rather than raised, so
+   * one bad cycle never fails the whole tool.
+   */
+  private async loadStoryTestCycles(
+    issueKey: string,
+    resolver: NameResolver,
+  ): Promise<Map<number, DigestTestCycle>> {
+    const map = new Map<number, DigestTestCycle>();
+    let refs;
+    try {
+      refs = await this.client.getIssueLinkTestCycles(issueKey);
+    } catch {
+      return map;
+    }
+    const ids = refs.map((r) => r.id).filter((id): id is number => id != null);
+    const cycles = await this.client.mapLimited(ids, async (id) => {
+      try {
+        return await this.client.getTestCycle(id);
+      } catch {
+        return null;
+      }
+    });
+    for (const cycle of cycles) {
+      if (!cycle || cycle.id == null) continue;
+      const statusName = await resolver.resolveStatus(cycle.status);
+      map.set(cycle.id, toDigestTestCycle(cycle, statusName));
+    }
+    return map;
+  }
 
   private async loadExecutionsByCaseKey(
     issueKey: string,

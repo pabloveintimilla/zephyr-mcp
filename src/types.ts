@@ -95,6 +95,19 @@ export interface Project {
   enabled?: boolean;
 }
 
+/** A test cycle, as returned by GET /testcycles/{idOrKey}. */
+export interface TestCycle {
+  id?: number;
+  key?: string;
+  name?: string;
+  project?: ResourceLink;
+  status?: ResourceLink;
+  folder?: ResourceLink | null;
+  description?: string | null;
+  plannedStartDate?: string | null;
+  plannedEndDate?: string | null;
+}
+
 /** A named lookup entity (statuses, priorities). */
 export interface NamedOption {
   id?: number;

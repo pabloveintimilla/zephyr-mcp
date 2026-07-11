@@ -8,6 +8,7 @@ import type {
   NamedOption,
   ResourceLink,
   TestCase,
+  TestCycle,
   TestExecution,
   TestStepOutput,
 } from "./types.js";
@@ -35,6 +36,7 @@ export interface DigestExecution {
   status: string;
   normalizedStatus: NormalizedStatus;
   cycle?: string;
+  cycleKey?: string;
   cycleId?: number;
   date?: string;
   comment?: string;
@@ -50,6 +52,14 @@ export interface DigestExecution {
   environmentId?: number;
   customFields?: Record<string, unknown>;
   linkedIssues?: DigestLinkedIssue[];
+}
+
+/** A test cycle linked to a story, surfaced in the digest. */
+export interface DigestTestCycle {
+  id?: number;
+  key?: string;
+  name?: string;
+  status?: string;
 }
 
 export interface DigestTestCase {
@@ -192,6 +202,19 @@ export function toDigestExecution(
     environmentId: exec.environment?.id ?? undefined,
     customFields: exec.customFields ?? undefined,
     ...(linkedIssues.length ? { linkedIssues } : {}),
+  };
+}
+
+/** Shape a test cycle for the digest; `statusName` is best-effort. */
+export function toDigestTestCycle(
+  cycle: TestCycle,
+  statusName: string | null,
+): DigestTestCycle {
+  return {
+    id: cycle.id,
+    key: cycle.key,
+    name: cycle.name,
+    ...(statusName ? { status: statusName } : {}),
   };
 }
 

@@ -131,23 +131,26 @@ export function registerTools(server: McpServer, service: ReviewService): void {
     {
       title: "List story executions",
       description:
-        "Returns the test executions linked to a Jira issue (story) with their status, cycle, and " +
-        "date — a focused pass/fail view. Returns an empty list when the story's tests have not been " +
-        "run. Read-only.",
+        "Returns the test executions linked to a Jira issue (story) with their status, cycle (id, " +
+        "key, and readable name), and date — a focused pass/fail view. Also lists the distinct test " +
+        "cycles the story is linked to, including cycles with no execution yet. Returns an empty " +
+        "execution list when the story's tests have not been run. Read-only.",
       inputSchema: { issueKey: ISSUE_KEY },
     },
     async ({ issueKey }) => {
       try {
-        const executions = await service.listStoryExecutions(issueKey);
+        const { executions, cycles } = await service.listStoryExecutions(issueKey);
         const counts = executions.reduce<Record<string, number>>((acc, e) => {
           acc[e.normalizedStatus] = (acc[e.normalizedStatus] ?? 0) + 1;
           return acc;
         }, {});
         const text =
           executions.length === 0
-            ? `Story ${issueKey}: no linked executions — its tests have not been run.`
-            : `Story ${issueKey}: ${executions.length} execution(s) — ${JSON.stringify(counts)}.`;
-        return result({ issueKey, executions }, text);
+            ? `Story ${issueKey}: no linked executions — its tests have not been run. ` +
+              `${cycles.length} linked test cycle(s).`
+            : `Story ${issueKey}: ${executions.length} execution(s) across ${cycles.length} ` +
+              `linked cycle(s) — ${JSON.stringify(counts)}.`;
+        return result({ issueKey, cycles, executions }, text);
       } catch (err) {
         return errorResult(err);
       }

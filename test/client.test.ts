@@ -82,6 +82,37 @@ test("surfaces rate_limited after retries are exhausted", async () => {
   });
 });
 
+test("getIssueLinkTestCycles requests the story's testcycles path", async () => {
+  let capturedUrl = "";
+  const client = new ZephyrClient(config, {
+    fetchImpl: (async (url: string) => {
+      capturedUrl = url;
+      return jsonResponse([
+        { id: 900, self: "https://api.example.com/v2/testcycles/900" },
+      ]);
+    }) as unknown as typeof fetch,
+  });
+
+  const refs = await client.getIssueLinkTestCycles("LOYAL-1");
+  assert.equal(capturedUrl, "https://api.example.com/v2/issuelinks/LOYAL-1/testcycles");
+  assert.deepEqual(refs.map((r) => r.id), [900]);
+});
+
+test("getTestCycle requests the cycle detail path and parses key/name", async () => {
+  let capturedUrl = "";
+  const client = new ZephyrClient(config, {
+    fetchImpl: (async (url: string) => {
+      capturedUrl = url;
+      return jsonResponse({ id: 900, key: "LOYAL-R1", name: "Sprint 1", status: { id: 7 } });
+    }) as unknown as typeof fetch,
+  });
+
+  const cycle = await client.getTestCycle(900);
+  assert.equal(capturedUrl, "https://api.example.com/v2/testcycles/900");
+  assert.equal(cycle.key, "LOYAL-R1");
+  assert.equal(cycle.name, "Sprint 1");
+});
+
 test("getAllPages follows startAt pagination until a short page", async () => {
   const pages: Record<number, unknown[]> = {
     0: [{ key: "A" }, { key: "B" }],
