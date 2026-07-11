@@ -1,4 +1,9 @@
-## ADDED Requirements
+# npm-distribution Specification
+
+## Purpose
+
+Distribute the Zephyr MCP server as a public, scoped npm package so any MCP client can run it with `npx` without cloning or building, published automatically and repeatably via CI.
+## Requirements
 
 ### Requirement: Runnable via npx from the public npm registry
 
@@ -35,12 +40,12 @@ The package SHALL rebuild `dist/` before publishing via a `prepublishOnly` (or `
 
 ### Requirement: Package metadata identifies the personal author and repository
 
-`package.json` SHALL declare `author` as `Pablo Veintimilla <pabloveintimilla@gmail.com>`, `license` as `MIT`, and `repository`, `homepage`, and `bugs` pointing at the personal GitHub repository `pabloveintimilla/zephyr-mcp`. The metadata SHALL NOT reference PPM or the `@ppm.com.ec` email address. A `LICENSE` file with the MIT text and copyright to Pablo Veintimilla SHALL be present.
+`package.json` SHALL declare `author` as `Pablo Veintimilla <pabloveintimilla@gmail.com>`, `license` as `MIT`, and `repository`, `homepage`, and `bugs` pointing at the personal GitHub repository `pabloveintimilla/zephyr-mcp`. A `LICENSE` file with the MIT text and copyright to Pablo Veintimilla SHALL be present.
 
 #### Scenario: npm page shows personal identity
 
 - **WHEN** the published package page is viewed on npm
-- **THEN** it shows the MIT license, the personal author, and links to the personal GitHub repository, with no PPM references
+- **THEN** it shows the MIT license, the personal author, and links to the personal GitHub repository
 
 #### Scenario: License file is present
 
@@ -70,6 +75,8 @@ The user section SHALL appear before the developer section.
 
 The repository SHALL include a GitHub Actions workflow at `.github/workflows/publish.yml` that publishes the package to the npm registry when a GitHub Release is published. The workflow SHALL check out the code, set up Node.js with `registry-url: https://registry.npmjs.org`, install dependencies with `npm ci`, build the TypeScript to `dist/`, and run `npm publish --provenance --access public`. It SHALL authenticate with an `NPM_TOKEN` repository secret exposed as `NODE_AUTH_TOKEN`, and SHALL request `id-token: write` permission so npm provenance can be attached. The compiled `dist/` SHALL be produced on the CI runner and SHALL NOT be committed to git.
 
+The workflow SHALL pin GitHub-maintained actions (`actions/checkout` and `actions/setup-node`) to major versions that run on a non-deprecated Node.js runtime, and SHALL set `node-version` to a supported Node.js LTS. It SHALL NOT rely on action versions that GitHub reports as deprecated.
+
 #### Scenario: Release triggers a publish
 
 - **WHEN** a GitHub Release is published on the repository
@@ -85,9 +92,14 @@ The repository SHALL include a GitHub Actions workflow at `.github/workflows/pub
 - **WHEN** the `NPM_TOKEN` secret is absent or invalid at publish time
 - **THEN** the workflow fails during `npm publish` without publishing a partial or unauthenticated version
 
+#### Scenario: Workflow runs on a supported, non-deprecated runtime
+
+- **WHEN** the publish workflow runs on GitHub-hosted runners
+- **THEN** `actions/checkout` and `actions/setup-node` run on a supported Node.js runtime and GitHub emits no Node.js deprecation warning for these actions, and the build and publish steps run on the configured Node.js LTS
+
 ### Requirement: Documented release and versioning runbook
 
-The change SHALL document a repeatable release runbook covering the one-time setup (create an npm automation/granular token with publish rights, add it as the `NPM_TOKEN` GitHub Actions secret) and the per-release flow (bump the version with `npm version`, push, and create a GitHub Release whose tag matches the `package.json` version, which triggers the publish workflow). The runbook SHALL also cover local pre-publish verification (`npm pack --dry-run` and an `npx ./` smoke test) for validating changes before cutting a release.
+The repository SHALL document a repeatable release runbook covering the one-time setup (create an npm automation/granular token with publish rights, add it as the `NPM_TOKEN` GitHub Actions secret) and the per-release flow (bump the version with `npm version`, push, and create a GitHub Release whose tag matches the `package.json` version, which triggers the publish workflow). The runbook SHALL also cover local pre-publish verification (`npm pack --dry-run` and an `npx ./` smoke test) for validating changes before cutting a release.
 
 #### Scenario: Maintainer cuts a new release
 
