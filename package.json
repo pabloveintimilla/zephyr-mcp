@@ -1,6 +1,6 @@
 {
   "name": "@pabloveintimilla/zephyr-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Read-only MCP server for reviewing stories against their Zephyr Scale test coverage.",
   "type": "module",
   "bin": {
