@@ -1,0 +1,34 @@
+schema: spec-driven
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+context: |
+  Tech stack: TypeScript, Node.js, MCP SDK
+
+  Tool naming conventions:
+  - Use snake_case for tool names (e.g. review_story_coverage, list_story_test_cases).
+  - Start tool names with an action-oriented verb (get_, list_, search_, review_).
+  - Prefix by domain when needed to avoid collisions (e.g. story_, test_case_).
+  - Keep tool names stable; clients may rely on them for routing/permissions.
+  - Match the tool description to the name: explain when and why to use the tool.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+rules:
+  proposal:
+    - Keep proposals under 500 words
+    - Use clear, concise language, with English as B1 level
+  tasks:
+    - Break tasks into chunks of max 5min
+    - Use clear, concise language, with English as B1 level
+    - Execute unit tests to validate changes
+  design:
+    - Use clear, concise language, with English as B1 level
+    - Not redundant context that is already provided in proposal
+    - Include diagrams and examples where helpful
+    - Focus on simplicity and maintainability
+    - Avoid over-engineering
+    - Update config.yaml when architecture changes
+    - Write comprehensive unit tests for all new code

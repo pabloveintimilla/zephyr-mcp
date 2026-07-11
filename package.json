@@ -1,0 +1,55 @@
+{
+  "name": "@pabloveintimilla/zephyr-mcp",
+  "version": "0.1.0",
+  "description": "Read-only MCP server for reviewing stories against their Zephyr Scale test coverage.",
+  "type": "module",
+  "bin": {
+    "zephyr-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "zephyr",
+    "zephyr-scale",
+    "testing",
+    "test-coverage",
+    "jira"
+  ],
+  "author": "Pablo Veintimilla <pabloveintimilla@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pabloveintimilla/zephyr-mcp.git"
+  },
+  "homepage": "https://github.com/pabloveintimilla/zephyr-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/pabloveintimilla/zephyr-mcp/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "node --import tsx src/index.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0"
+  }
+}
